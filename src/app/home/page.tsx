@@ -64,22 +64,74 @@ const PdfGenerator4: React.FC = () => {
     
         fetchUser();
       }, [userId]);
-  const handleFirstPageUpload = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleFirstPageUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      setFirstPageImage(URL.createObjectURL(file));
+      const imageSrc = URL.createObjectURL(file);
+      if (file.size > 3 * 1024 * 1024) {
+        const compressedImage = await compressImageToTargetSize(
+          imageSrc,
+          800, // Max width
+          800, // Max height
+          3 * 1024 * 1024 // 1 MB target size
+        );  
+        setFirstPageImage(compressedImage);
+      } else {
+        setFirstPageImage(imageSrc);
+      } 
     }
   };
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+  const base64ToFile = (base64: string, fileName: string): File => {
+    const byteString = atob(base64.split(",")[1]); // Decode Base64
+    const mimeType = base64.match(/data:(.*?);base64/)?.[1] || "image/jpeg"; // Extract MIME type
+    const arrayBuffer = new Uint8Array(byteString.length);
+  
+    for (let i = 0; i < byteString.length; i++) {
+      arrayBuffer[i] = byteString.charCodeAt(i);
+    }
+  
+    const blob = new Blob([arrayBuffer], { type: mimeType });
+    return new File([blob], fileName, { type: mimeType });
+  };
+  
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     const files = e.dataTransfer.files;
+  
     if (files.length > 0) {
       const fileArray = Array.from(files);
-      setAdditionalImages(fileArray);
+  
+      const compressedFiles = await Promise.all(
+        fileArray.map(async (file) => {
+          // if (file.size > 1 * 1024 * 1024) {
+            const compressedImage = await compressImageToTargetSize(
+              URL.createObjectURL(file),
+              800, // Max width
+              800, // Max height
+              3 * 1024 * 1024 // 1 MB target size
+            );
+            return base64ToFile(compressedImage, file.name); // Convert Base64 to File
+          // } else {
+          //   return file;
+          // }
+        })
+      );  
+      setAdditionalImages(compressedFiles); // Update state with File objects
     }
-    setIsDragging(false); // Reset dragging state after drop
+  
+    setIsDragging(false);
   };
+  // const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+  //   e.preventDefault();
+  //   const files = e.dataTransfer.files;
+  //   if (files.length > 0) {
+  //     const fileArray = Array.from(files);
+  //     setAdditionalImages(fileArray);
+  //   }
+  //   setIsDragging(false); // Reset dragging state after drop
+  // };
+  
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -90,10 +142,28 @@ const PdfGenerator4: React.FC = () => {
     setIsDragging(false); // Reset dragging state when dragging leaves the drop zone
   };
 
-  const handleAdditionalImagesUpload = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleAdditionalImagesUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const files = Array.from(e.target.files);
-      setAdditionalImages(files);
+      const compressedFiles = await Promise.all(
+        files.map(async (file) => {
+          const imageSrc = URL.createObjectURL(file);
+          // if (file.size > 1 * 1024 * 1024) {
+            const compressedBase64 = await compressImageToTargetSize(
+              imageSrc,
+              800, // Max width
+              800, // Max height
+              2 * 1024 * 1024 // 1 MB target size
+            );
+            return base64ToFile(compressedBase64, file.name); // Convert Base64 to File
+          // } else {
+          //   return file;
+          // }
+        })
+      );
+  
+      setAdditionalImages(compressedFiles);
+      // setAdditionalImages(files);
     }
   };
 
@@ -102,6 +172,97 @@ const PdfGenerator4: React.FC = () => {
     setAdditionalImages([]);
     setPdfPreviewUrl(null);
     setGeneratedPdfBlob(null);
+  };
+
+  const compressImageToTargetSize = (
+    imageSrc: string,
+    maxWidth: number,
+    maxHeight: number,
+    targetSizeInBytes: number = 2 * 1024 * 1024 // Default target size: 1 MB
+  ): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.src = imageSrc;
+  
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d")!;
+  
+        let { width, height } = img;
+  
+        // Maintain aspect ratio while resizing
+        const aspectRatio = width / height;
+        if (width > maxWidth || height > maxHeight) {
+          if (width > height) {
+            width = maxWidth;
+            height = width / aspectRatio;
+          } else {
+            height = maxHeight;
+            width = height * aspectRatio;
+          }
+        }
+  
+        canvas.width = width;
+        canvas.height = height;
+        ctx.drawImage(img, 0, 0, width, height);
+  
+        let quality = 1.0; // Start with high quality
+        let compressedImage: string;
+        do {
+          compressedImage = canvas.toDataURL("image/jpeg", quality);
+          const compressedSize = compressedImage.length * (3 / 4); // Approximate byte size of Base64
+          if (compressedSize <= targetSizeInBytes) break;
+          quality -= 0.05; // Reduce quality in small steps
+        } while (quality > 0.1); // Stop if quality drops too low
+        resolve(compressedImage);
+      };
+    });
+  };
+
+  const compressImageTo1MB = async (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+
+      reader.onload = () => {
+        const img = new Image();
+        img.src = reader.result as string;
+
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d")!;
+          let { width, height } = img;
+
+          // Resize the image to a maximum of 800x800 while maintaining the aspect ratio
+          const maxDimension = 800;
+          if (width > maxDimension || height > maxDimension) {
+            if (width > height) {
+              height = (height / width) * maxDimension;
+              width = maxDimension;
+            } else {
+              width = (width / height) * maxDimension;
+              height = maxDimension;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Start with high quality and iteratively reduce quality until size <= 1 MB
+          let quality = 0.9;
+          let compressedBase64: string;
+          do {
+            compressedBase64 = canvas.toDataURL("image/jpeg", quality);
+            const sizeInBytes = (compressedBase64.length * 3) / 4; // Approximate size of Base64
+            if (sizeInBytes <= 1 * 1024 * 1024) break; // Stop if size is <= 1 MB
+            quality -= 0.05; // Decrease quality
+          } while (quality > 0.1); // Stop if quality gets too low
+
+          resolve(compressedBase64);
+        };
+      };
+    });
   };
 
   const generatePDF = async () => {
