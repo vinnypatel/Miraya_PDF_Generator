@@ -68,17 +68,17 @@ const PdfGenerator4: React.FC = () => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       const imageSrc = URL.createObjectURL(file);
-      if (file.size > 3 * 1024 * 1024) {
-        const compressedImage = await compressImageToTargetSize(
-          imageSrc,
-          800, // Max width
-          800, // Max height
-          3 * 1024 * 1024 // 1 MB target size
-        );  
-        setFirstPageImage(compressedImage);
-      } else {
+      // if (file.size > 3 * 1024 * 1024) {
+      //   const compressedImage = await compressImageToTargetSize(
+      //     imageSrc,
+      //     800, // Max width
+      //     800, // Max height
+      //     3 * 1024 * 1024 // 1 MB target size
+      //   );  
+      //   setFirstPageImage(compressedImage);
+      // } else {
         setFirstPageImage(imageSrc);
-      } 
+      // } 
     }
   };
 
@@ -105,15 +105,15 @@ const PdfGenerator4: React.FC = () => {
       const compressedFiles = await Promise.all(
         fileArray.map(async (file) => {
           // if (file.size > 1 * 1024 * 1024) {
-            const compressedImage = await compressImageToTargetSize(
-              URL.createObjectURL(file),
-              800, // Max width
-              800, // Max height
-              3 * 1024 * 1024 // 1 MB target size
-            );
-            return base64ToFile(compressedImage, file.name); // Convert Base64 to File
+            // const compressedImage = await compressImageToTargetSize(
+            //   URL.createObjectURL(file),
+            //   800, // Max width
+            //   800, // Max height
+            //   3 * 1024 * 1024 // 1 MB target size
+            // );
+            // return base64ToFile(compressedImage, file.name); // Convert Base64 to File
           // } else {
-          //   return file;
+            return file;
           // }
         })
       );  
@@ -149,15 +149,15 @@ const PdfGenerator4: React.FC = () => {
         files.map(async (file) => {
           const imageSrc = URL.createObjectURL(file);
           // if (file.size > 1 * 1024 * 1024) {
-            const compressedBase64 = await compressImageToTargetSize(
-              imageSrc,
-              800, // Max width
-              800, // Max height
-              2 * 1024 * 1024 // 1 MB target size
-            );
-            return base64ToFile(compressedBase64, file.name); // Convert Base64 to File
+            // const compressedBase64 = await compressImageToTargetSize(
+            //   imageSrc,
+            //   800, // Max width
+            //   800, // Max height
+            //   2 * 1024 * 1024 // 1 MB target size
+            // );
+            // return base64ToFile(compressedBase64, file.name); // Convert Base64 to File
           // } else {
-          //   return file;
+            return file;
           // }
         })
       );
@@ -265,7 +265,7 @@ const PdfGenerator4: React.FC = () => {
     });
   };
 
-  const generatePDF = async () => {
+  const generatePDF1 = async () => {
     if (!firstPageImage) {
       alert("Please upload the first page image.");
       return;
@@ -358,6 +358,101 @@ const PdfGenerator4: React.FC = () => {
     setGeneratedPdfBlob(pdfBlob);
     setPdfPreviewUrl(URL.createObjectURL(pdfBlob));
   };
+
+  const generatePDF = async () => {
+    if (!firstPageImage) {
+      alert("Please upload the first page image.");
+      return;
+    }
+    setLoading(true);
+    setTitle(`Generating PDF...`);
+    const pdf = new jsPDF("portrait", "mm", "a4"); // A4 size
+    const margin = 10;
+    const pageWidth = 210; // A4 width in mm
+    const pageHeight = 297; // A4 height in mm
+  
+    // Add the first page image with dynamic scaling and compression
+    const firstImage = new Image();
+    firstImage.src = firstPageImage;
+  
+    await new Promise((resolve) => {
+      firstImage.onload = () => {
+        const imgAspectRatio = firstImage.width / firstImage.height;
+        let imgWidth = pageWidth - margin * 2;
+        let imgHeight = imgWidth / imgAspectRatio;
+  
+        if (imgHeight > pageHeight - margin * 2) {
+          imgHeight = pageHeight - margin * 2;
+          imgWidth = imgHeight * imgAspectRatio;
+        }
+  
+        const x = (pageWidth - imgWidth) / 2; // Center horizontally
+        const y = (pageHeight - imgHeight) / 2; // Center vertically
+        pdf.addImage(firstImage, "JPEG", x, y, imgWidth, imgHeight, undefined, "FAST"); // Use "FAST" compression
+        resolve(true);
+      };
+    });
+  
+    // Add subsequent images in a 2x2 grid with original aspect ratios
+    if (additionalImages.length > 0) {
+      pdf.addPage(); // Start new page for additional images
+  
+      const gridRows = 2;
+      const gridCols = 2;
+      const cellWidth = (pageWidth - margin * 3) / gridCols; // Width for each grid cell
+      const cellHeight = (pageHeight - margin * 3) / gridRows; // Height for each grid cell
+  
+      let x = margin; // Starting X position
+      let y = margin; // Starting Y position
+  
+      for (let i = 0; i < additionalImages.length; i++) {
+        const img = new Image();
+        img.src = URL.createObjectURL(additionalImages[i]);
+  
+        await new Promise((resolve) => {
+          img.onload = () => {
+            const imgAspectRatio = img.width / img.height;
+            let imgWidth = cellWidth;
+            let imgHeight = imgWidth / imgAspectRatio;
+  
+            if (imgHeight > cellHeight) {
+              imgHeight = cellHeight;
+              imgWidth = imgHeight * imgAspectRatio;
+            }
+  
+            // Center the image within its cell
+            const centeredX = x + (cellWidth - imgWidth) / 2;
+            const centeredY = y + (cellHeight - imgHeight) / 2;
+  
+            pdf.addImage(img, "JPEG", centeredX, centeredY, imgWidth, imgHeight, undefined, "FAST"); // Use "FAST" compression
+            resolve(true);
+          };
+        });
+  
+        x += cellWidth + margin; // Move to the next column
+  
+        // If we're at the end of a row, reset X and move to the next row
+        if ((i + 1) % gridCols === 0) {
+          x = margin;
+          y += cellHeight + margin;
+        }
+  
+        // If we're at the end of the page, add a new page
+        if ((i + 1) % (gridRows * gridCols) === 0 && i !== additionalImages.length - 1) {
+          pdf.addPage();
+          x = margin;
+          y = margin;
+        }
+      }
+    }
+  
+    setLoading(false);
+    // Generate a preview URL
+    const pdfBlob = pdf.output("blob");
+    setGeneratedPdfBlob(pdfBlob);
+    setPdfPreviewUrl(URL.createObjectURL(pdfBlob));
+  };
+  
 
   useEffect(() => {
     scrollToTargetDiv();
