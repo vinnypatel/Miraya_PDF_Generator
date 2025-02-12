@@ -14,7 +14,8 @@ export default function LoginPage() {
   useEffect(() => {
     const user = localStorage.getItem("user");
     if (user) {
-      router.push("/home");
+      // router.push("/home");
+      router.push("/newHome");
     }
   });
 
